@@ -153,12 +153,12 @@ def calc_earth_pressure(gamma, H, K, c=0.0, q=0.0, gw_depth=None, gamma_w=1.0):
     sigma_total = sigma_soil + sigma_water
 
     # 합력 (사다리꼴 적분)
-    P_total = np.trapz(sigma_total, depths)
+    P_total = np.trapezoid(sigma_total, depths)
 
     # 작용점 (바닥 기준 높이 y_bar)
     # 모멘트 중심 = ∫σ(z) · (H - z) dz / ∫σ(z) dz
     if P_total > 1e-9:
-        moment = np.trapz(sigma_total * (H - depths), depths)
+        moment = np.trapezoid(sigma_total * (H - depths), depths)
         y_bar = moment / P_total
     else:
         y_bar = 0.0
