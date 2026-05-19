@@ -134,6 +134,73 @@ def calc_earth_pressure(gamma, H, K, c=0.0, q=0.0, gw_depth=None, gamma_w=1.0):
     return depths, sigma_total, sigma_soil, sigma_water, P_total, y_bar
 
 
+def calc_effective_vertical_stress(depth, gamma, q=0.0, gw_depth=None, gamma_w=1.0):
+    """특정 깊이에서의 유효 연직응력 계산 (등분포하중 포함)"""
+    if gw_depth is None or depth <= gw_depth:
+        return gamma * depth + q
+    gamma_sub = gamma - gamma_w
+    return gamma * gw_depth + gamma_sub * (depth - gw_depth) + q
+
+
+def calc_mohr_stresses(depth, gamma, K, state="active", c=0.0, q=0.0, gw_depth=None, gamma_w=1.0):
+    """선택 깊이에서의 간략 Mohr circle용 주응력 계산"""
+    sigma_v = calc_effective_vertical_stress(depth, gamma, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
+
+    if state == "active":
+        sigma_h = K * sigma_v - 2 * c * math.sqrt(K)
+        sigma_h = max(0.0, sigma_h)
+    else:
+        sigma_h = K * sigma_v + 2 * c * math.sqrt(K)
+
+    sigma_1 = max(sigma_v, sigma_h)
+    sigma_3 = min(sigma_v, sigma_h)
+    return sigma_v, sigma_h, sigma_1, sigma_3
+
+
+def plot_mohr_circle(theory_name, Ka, Kp, depth, gamma, phi, c=0.0, q=0.0, gw_depth=None, gamma_w=1.0):
+    fig, ax = plt.subplots(figsize=(7, 6))
+    max_sigma = 1.0
+
+    if Ka is not None:
+        _, _, s1a, s3a = calc_mohr_stresses(depth, gamma, Ka, state="active", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
+        center_a = (s1a + s3a) / 2
+        radius_a = (s1a - s3a) / 2
+        theta = np.linspace(0, 2 * np.pi, 400)
+        x_a = center_a + radius_a * np.cos(theta)
+        y_a = radius_a * np.sin(theta)
+        ax.plot(x_a, y_a, color="#1f77b4", linewidth=2, label=f"Active ({theory_name})")
+        ax.plot([s3a, s1a], [0, 0], 'o', color="#1f77b4", markersize=4)
+        max_sigma = max(max_sigma, s1a)
+
+    if Kp is not None:
+        _, _, s1p, s3p = calc_mohr_stresses(depth, gamma, Kp, state="passive", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
+        center_p = (s1p + s3p) / 2
+        radius_p = (s1p - s3p) / 2
+        theta = np.linspace(0, 2 * np.pi, 400)
+        x_p = center_p + radius_p * np.cos(theta)
+        y_p = radius_p * np.sin(theta)
+        ax.plot(x_p, y_p, color="#d62728", linewidth=2, label=f"Passive ({theory_name})")
+        ax.plot([s3p, s1p], [0, 0], 'o', color="#d62728", markersize=4)
+        max_sigma = max(max_sigma, s1p)
+
+    x_env = np.linspace(0, max_sigma * 1.15, 300)
+    tau_env = c + x_env * math.tan(math.radians(phi))
+    ax.plot(x_env, tau_env, color="black", linestyle="--", linewidth=1.5, label="Failure Envelope")
+    if c > 0:
+        ax.plot(x_env, -tau_env, color="black", linestyle="--", linewidth=1.0, alpha=0.7)
+    else:
+        ax.plot(x_env, -x_env * math.tan(math.radians(phi)), color="black", linestyle="--", linewidth=1.0, alpha=0.7)
+
+    ax.axhline(0, color="gray", linewidth=1)
+    ax.axvline(0, color="gray", linewidth=1)
+    ax.set_xlabel("Normal Stress σ (t/m^2)")
+    ax.set_ylabel("Shear Stress τ (t/m^2)")
+    ax.set_title(f"Mohr Circle at z = {depth:.2f} m")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="upper left")
+    return fig
+
+
 # ============================
 # UI - 사이드바 입력
 # ============================
@@ -234,54 +301,50 @@ st.dataframe(pd.DataFrame(results), hide_index=True)
 
 
 # ============================
-# 결과 - 그래프 (토압 분포도) - 영어 라벨
+# 결과 - Mohr Circle
 # ============================
-st.header("📈 3. 토압 분포도")
+st.header("📈 3. 모어원 그래프")
 
-tab1, tab2 = st.tabs(["Active Pressure", "Passive Pressure"])
+mohr_col1, mohr_col2 = st.columns([1, 2])
+with mohr_col1:
+    mohr_theory = st.selectbox("이론 선택", ["Rankine", "Coulomb"], index=0)
+    mohr_depth = st.slider("깊이 z (m)", min_value=0.0, max_value=float(H), value=float(min(1.0, H)), step=0.1)
+    st.caption("선택 깊이에서 주동/수동 상태의 모어원을 함께 표시합니다.")
 
-def plot_pressure(curves_keys, title):
-    fig, ax = plt.subplots(figsize=(7, 6))
-    colors = {"Rankine": "#1f77b4", "Coulomb": "#d62728"}
-    has_curve = False
+with mohr_col2:
+    if mohr_theory == "Rankine":
+        mohr_fig = plot_mohr_circle("Rankine", Ka_r, Kp_r, mohr_depth, gamma, phi, c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
+    else:
+        mohr_fig = plot_mohr_circle("Coulomb", Ka_c, Kp_c, mohr_depth, gamma, phi, c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
+    st.pyplot(mohr_fig)
 
-    for key in curves_keys:
-        if key not in press_curves:
-            continue
-        depths, sigma_total, sigma_soil, sigma_water, P, ybar = press_curves[key]
-        theory = key.split("-")[0]
-        has_curve = True
+# 선택 깊이 응력값 표
+mohr_rows = []
+selected_coeffs = [(mohr_theory, Ka_r, Kp_r)] if mohr_theory == "Rankine" else [(mohr_theory, Ka_c, Kp_c)]
+for theory_name, Ka_sel, Kp_sel in selected_coeffs:
+    if Ka_sel is not None:
+        sigma_v, sigma_h, s1, s3 = calc_mohr_stresses(mohr_depth, gamma, Ka_sel, state="active", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
+        mohr_rows.append({
+            "Theory": theory_name,
+            "State": "Active",
+            "σv' (t/m²)": f"{sigma_v:.3f}",
+            "σh' (t/m²)": f"{sigma_h:.3f}",
+            "σ1 (t/m²)": f"{s1:.3f}",
+            "σ3 (t/m²)": f"{s3:.3f}",
+        })
+    if Kp_sel is not None:
+        sigma_v, sigma_h, s1, s3 = calc_mohr_stresses(mohr_depth, gamma, Kp_sel, state="passive", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
+        mohr_rows.append({
+            "Theory": theory_name,
+            "State": "Passive",
+            "σv' (t/m²)": f"{sigma_v:.3f}",
+            "σh' (t/m²)": f"{sigma_h:.3f}",
+            "σ1 (t/m²)": f"{s1:.3f}",
+            "σ3 (t/m²)": f"{s3:.3f}",
+        })
 
-        ax.plot(sigma_total, depths,
-                label=f"{theory} (P={P:.2f} t/m)",
-                color=colors[theory], linewidth=2)
-        ax.fill_betweenx(depths, 0, sigma_total,
-                         color=colors[theory], alpha=0.15)
-        # Resultant action point line
-        ax.axhline(H - ybar, color=colors[theory], linestyle="--", alpha=0.5)
-        ax.text(0.02, H - ybar - 0.08,
-                f"{theory}: y_bar = {ybar:.2f} m",
-                color=colors[theory], fontsize=9)
-
-    ax.set_xlabel("Earth Pressure (t/m^2)")
-    ax.set_ylabel("Depth z (m)")
-    ax.set_title(title)
-    ax.invert_yaxis()
-    ax.grid(True, alpha=0.3)
-    if has_curve:
-        ax.legend(loc="lower right")
-    ax.axvline(0, color="gray", linewidth=3)
-    return fig
-
-with tab1:
-    fig1 = plot_pressure(["Rankine-Active(Pa)", "Coulomb-Active(Pa)"],
-                         "Active Earth Pressure")
-    st.pyplot(fig1)
-
-with tab2:
-    fig2 = plot_pressure(["Rankine-Passive(Pp)", "Coulomb-Passive(Pp)"],
-                         "Passive Earth Pressure")
-    st.pyplot(fig2)
+if mohr_rows:
+    st.dataframe(pd.DataFrame(mohr_rows), hide_index=True)
 
 
 # ============================
@@ -307,7 +370,10 @@ ax3.fill(backfill_x, backfill_y, color="#c2a878", alpha=0.5, label="Backfill")
 if gw_depth is not None:
     ax3.axhline(H - gw_depth, xmin=0.05, xmax=0.95,
                 color="blue", linestyle="--", linewidth=2)
-   
+    ax3.text(0.4 + H*0.8, H - gw_depth + 0.1,
+             f"GWL (-{gw_depth:.1f} m)",
+             color="blue", fontsize=10)
+
 # 등분포하중
 if use_q and q > 0:
     arrow_y = top_y + 0.3
@@ -315,13 +381,19 @@ if use_q and q > 0:
         ax3.annotate("", xy=(x_arrow, top_y),
                      xytext=(x_arrow, arrow_y),
                      arrowprops=dict(arrowstyle="->", color="red"))
-   
+    ax3.text(0.4 + H*0.5, arrow_y + 0.1,
+             f"q = {q} t/m^2",
+             color="red", fontsize=11, ha="center", fontweight="bold")
+
 # 토압 작용 화살표 (랭킨 주동 기준)
 if Ka_r is not None and "Rankine-Active(Pa)" in press_curves:
     _, _, _, _, P_show, ybar_show = press_curves["Rankine-Active(Pa)"]
     ax3.annotate("", xy=(0.4, ybar_show), xytext=(1.5, ybar_show),
                  arrowprops=dict(arrowstyle="->", color="darkred", lw=2.5))
-    
+    ax3.text(1.6, ybar_show,
+             f"Pa = {P_show:.2f} t/m\n(y_bar = {ybar_show:.2f} m)",
+             color="darkred", fontsize=10, va="center")
+
 ax3.set_xlim(-0.5, 0.4 + H*1.7)
 ax3.set_ylim(-0.5, max(top_y, H) + 1.5)
 ax3.set_aspect("equal")
