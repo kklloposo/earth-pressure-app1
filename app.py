@@ -236,7 +236,7 @@ st.dataframe(pd.DataFrame(results), hide_index=True)
 # ============================
 # 결과 - 그래프 (토압 분포도) - 영어 라벨
 # ============================
-st.header("📈 3. Pressure Distribution")
+st.header("📈 3. 토압 분포도")
 
 tab1, tab2 = st.tabs(["Active Pressure", "Passive Pressure"])
 
@@ -287,7 +287,7 @@ with tab2:
 # ============================
 # 옹벽 단면 개념도 - 영어 라벨
 # ============================
-st.header("🏗️ 4. Wall Section")
+st.header("🏗️ 4. 옹벽 단면도")
 
 fig3, ax3 = plt.subplots(figsize=(8, 6))
 
