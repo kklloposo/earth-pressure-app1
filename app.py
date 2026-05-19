@@ -307,10 +307,7 @@ ax3.fill(backfill_x, backfill_y, color="#c2a878", alpha=0.5, label="Backfill")
 if gw_depth is not None:
     ax3.axhline(H - gw_depth, xmin=0.05, xmax=0.95,
                 color="blue", linestyle="--", linewidth=2)
-    ax3.text(0.4 + H*0.8, H - gw_depth + 0.1,
-             f"GWL (-{gw_depth:.1f} m)",
-             color="blue", fontsize=10)
-
+   
 # 등분포하중
 if use_q and q > 0:
     arrow_y = top_y + 0.3
@@ -318,19 +315,13 @@ if use_q and q > 0:
         ax3.annotate("", xy=(x_arrow, top_y),
                      xytext=(x_arrow, arrow_y),
                      arrowprops=dict(arrowstyle="->", color="red"))
-    ax3.text(0.4 + H*0.5, arrow_y + 0.1,
-             f"q = {q} t/m^2",
-             color="red", fontsize=11, ha="center", fontweight="bold")
-
+   
 # 토압 작용 화살표 (랭킨 주동 기준)
 if Ka_r is not None and "Rankine-Active(Pa)" in press_curves:
     _, _, _, _, P_show, ybar_show = press_curves["Rankine-Active(Pa)"]
     ax3.annotate("", xy=(0.4, ybar_show), xytext=(1.5, ybar_show),
                  arrowprops=dict(arrowstyle="->", color="darkred", lw=2.5))
-    ax3.text(1.6, ybar_show,
-             f"Pa = {P_show:.2f} t/m\n(y_bar = {ybar_show:.2f} m)",
-             color="darkred", fontsize=10, va="center")
-
+    
 ax3.set_xlim(-0.5, 0.4 + H*1.7)
 ax3.set_ylim(-0.5, max(top_y, H) + 1.5)
 ax3.set_aspect("equal")
