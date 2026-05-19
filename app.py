@@ -315,8 +315,8 @@ def plot_pressure(curves_keys, title):
                 f"{theory} 작용점 ={ybar:.2f}m",
                 color=colors[theory], fontsize=9)
 
-    ax.set_xlabel("토압 σ (t/m²)")
-    ax.set_ylabel("깊이 z (m)  ← 지표 0, 바닥 H")
+    ax.set_xlabel(" σ (t/m²)")
+    ax.set_ylabel(" z (m)  ← 지표 0, 바닥 H")
     ax.set_title(title)
     ax.invert_yaxis()
     ax.grid(True, alpha=0.3)
@@ -326,13 +326,13 @@ def plot_pressure(curves_keys, title):
     return fig
 
 with tab1:
-    fig1 = plot_pressure(["Rankine-주동(Pa)", "Coulomb-주동(Pa)"],
-                         "주동토압 분포 (Active Earth Pressure)")
+    fig1 = plot_pressure(["Rankine-(Pa)", "Coulomb-(Pa)"],
+                         "Active Earth Pressure")
     st.pyplot(fig1)
 
 with tab2:
-    fig2 = plot_pressure(["Rankine-수동(Pp)", "Coulomb-수동(Pp)"],
-                         "수동토압 분포 (Passive Earth Pressure)")
+    fig2 = plot_pressure(["Rankine-(Pp)", "Coulomb-(Pp)"],
+                         "Passive Earth Pressure")
     st.pyplot(fig2)
 
 
@@ -373,8 +373,8 @@ if use_q and q > 0:
              color="red", fontsize=11, ha="center", fontweight="bold")
 
 # 토압 작용 화살표 (랭킨 주동 기준)
-if Ka_r is not None and "Rankine-주동(Pa)" in press_curves:
-    _, _, _, _, P_show, ybar_show = press_curves["Rankine-주동(Pa)"]
+if Ka_r is not None and "Rankine-(Pa)" in press_curves:
+    _, _, _, _, P_show, ybar_show = press_curves["Rankine-(Pa)"]
     ax3.annotate("", xy=(0.4, ybar_show), xytext=(1.5, ybar_show),
                  arrowprops=dict(arrowstyle="->", color="darkred", lw=2.5))
     ax3.text(1.6, ybar_show, f"Pa = {P_show:.2f} t/m\n(ȳ={ybar_show:.2f}m)",
