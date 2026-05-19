@@ -307,41 +307,36 @@ st.header("📈 3. 모어원 그래프")
 
 mohr_col1, mohr_col2 = st.columns([1, 2])
 with mohr_col1:
-    mohr_theory = st.selectbox("이론 선택", ["Rankine", "Coulomb"], index=0)
     mohr_depth = st.slider("깊이 z (m)", min_value=0.0, max_value=float(H), value=float(min(1.0, H)), step=0.1)
-    st.caption("선택 깊이에서 주동/수동 상태의 모어원을 함께 표시합니다.")
+    st.caption("모어원은 Rankine 이론 기준으로만 표시합니다.")
+    st.info("Coulomb 토압은 벽면마찰을 포함한 쐐기 평형해석이므로, 점 응력 기반 모어원과 직접 대응시키지 않습니다.")
 
 with mohr_col2:
-    if mohr_theory == "Rankine":
-        mohr_fig = plot_mohr_circle("Rankine", Ka_r, Kp_r, mohr_depth, gamma, phi, c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
-    else:
-        mohr_fig = plot_mohr_circle("Coulomb", Ka_c, Kp_c, mohr_depth, gamma, phi, c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
+    mohr_fig = plot_mohr_circle("Rankine", Ka_r, Kp_r, mohr_depth, gamma, phi, c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
     st.pyplot(mohr_fig)
 
-# 선택 깊이 응력값 표
+# 선택 깊이 응력값 표 (Rankine only)
 mohr_rows = []
-selected_coeffs = [(mohr_theory, Ka_r, Kp_r)] if mohr_theory == "Rankine" else [(mohr_theory, Ka_c, Kp_c)]
-for theory_name, Ka_sel, Kp_sel in selected_coeffs:
-    if Ka_sel is not None:
-        sigma_v, sigma_h, s1, s3 = calc_mohr_stresses(mohr_depth, gamma, Ka_sel, state="active", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
-        mohr_rows.append({
-            "Theory": theory_name,
-            "State": "Active",
-            "σv' (t/m²)": f"{sigma_v:.3f}",
-            "σh' (t/m²)": f"{sigma_h:.3f}",
-            "σ1 (t/m²)": f"{s1:.3f}",
-            "σ3 (t/m²)": f"{s3:.3f}",
-        })
-    if Kp_sel is not None:
-        sigma_v, sigma_h, s1, s3 = calc_mohr_stresses(mohr_depth, gamma, Kp_sel, state="passive", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
-        mohr_rows.append({
-            "Theory": theory_name,
-            "State": "Passive",
-            "σv' (t/m²)": f"{sigma_v:.3f}",
-            "σh' (t/m²)": f"{sigma_h:.3f}",
-            "σ1 (t/m²)": f"{s1:.3f}",
-            "σ3 (t/m²)": f"{s3:.3f}",
-        })
+if Ka_r is not None:
+    sigma_v, sigma_h, s1, s3 = calc_mohr_stresses(mohr_depth, gamma, Ka_r, state="active", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
+    mohr_rows.append({
+        "Theory": "Rankine",
+        "State": "Active",
+        "σv' (t/m²)": f"{sigma_v:.3f}",
+        "σh' (t/m²)": f"{sigma_h:.3f}",
+        "σ1 (t/m²)": f"{s1:.3f}",
+        "σ3 (t/m²)": f"{s3:.3f}",
+    })
+if Kp_r is not None:
+    sigma_v, sigma_h, s1, s3 = calc_mohr_stresses(mohr_depth, gamma, Kp_r, state="passive", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w)
+    mohr_rows.append({
+        "Theory": "Rankine",
+        "State": "Passive",
+        "σv' (t/m²)": f"{sigma_v:.3f}",
+        "σh' (t/m²)": f"{sigma_h:.3f}",
+        "σ1 (t/m²)": f"{s1:.3f}",
+        "σ3 (t/m²)": f"{s3:.3f}",
+    })
 
 if mohr_rows:
     st.dataframe(pd.DataFrame(mohr_rows), hide_index=True)
