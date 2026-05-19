@@ -226,7 +226,7 @@ for w in warnings:
 st.header("📊 1. 토압 계수 비교")
 
 data = {
-    "구분": ["주동토압계수 Kₐ", "수동토압계수 Kₚ"],
+    "구분": ["주동토압계수 Ka", "수동토압계수 Kp"],
     "Rankine": [f"{Ka_r:.4f}" if Ka_r else "—",
                 f"{Kp_r:.4f}" if Kp_r else "—"],
     "Coulomb": [f"{Ka_c:.4f}" if Ka_c else "—",
@@ -267,7 +267,7 @@ for theory, Ka, Kp in [("Rankine", Ka_r, Kp_r), ("Coulomb", Ka_c, Kp_c)]:
         if K is None:
             results.append({"이론": theory, "구분": kind,
                             "계수 K": "—", "합력 P (t/m)": "—",
-                            "작용점 ȳ (m, 바닥에서)": "—"})
+                            "작용점  (m, 바닥에서)": "—"})
             continue
 
         # 주동에서만 c, q 반영. 수동은 보수적으로 c 미적용(일반 관행)
@@ -283,7 +283,7 @@ for theory, Ka, Kp in [("Rankine", Ka_r, Kp_r), ("Coulomb", Ka_c, Kp_c)]:
             "구분": kind,
             "계수 K": f"{K:.4f}",
             "합력 P (t/m)": f"{P:.3f}",
-            "작용점 ȳ (m, 바닥에서)": f"{ybar:.3f}",
+            "작용점  (m, 바닥에서)": f"{ybar:.3f}",
         })
         press_curves[f"{theory}-{kind}"] = (depths, sigma_total, sigma_soil, sigma_water, P, ybar)
 
@@ -312,7 +312,7 @@ def plot_pressure(curves_keys, title):
         # 작용점 표시
         ax.axhline(H - ybar, color=colors[theory], linestyle="--", alpha=0.5)
         ax.text(max(sigma_total)*0.5, H - ybar - 0.1,
-                f"{theory} 작용점 ȳ={ybar:.2f}m",
+                f"{theory} 작용점 ={ybar:.2f}m",
                 color=colors[theory], fontsize=9)
 
     ax.set_xlabel("토압 σ (t/m²)")
