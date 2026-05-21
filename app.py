@@ -264,6 +264,20 @@ data = {
 }
 st.table(pd.DataFrame(data))
 
+with st.expander("📐 계산식 보기"):
+    st.markdown("**Rankine (수평 지표면)**")
+    st.latex(r"K_a = \tan^2\left(45^\circ - \frac{\phi}{2}\right), \quad K_p = \tan^2\left(45^\circ + \frac{\phi}{2}\right)")
+    st.markdown("**Rankine (경사 지표면)**")
+    st.latex(r"K_a = \cos i \cdot \frac{\cos i - \sqrt{\cos^2 i - \cos^2 \phi}}{\cos i + \sqrt{\cos^2 i - \cos^2 \phi}}")
+    st.markdown("**Coulomb**")
+    st.latex(r"K_a = \frac{\sin^2(\alpha+\phi)}{\sin^2\alpha\,\sin(\alpha-\delta)\left[1+\sqrt{\frac{\sin(\phi+\delta)\sin(\phi-\beta)}{\sin(\alpha-\delta)\sin(\alpha+\beta)}}\right]^2}")
+    st.latex(r"K_p = \frac{\sin^2(\alpha-\phi)}{\sin^2\alpha\,\sin(\alpha+\delta)\left[1-\sqrt{\frac{\sin(\phi+\delta)\sin(\phi+\beta)}{\sin(\alpha+\delta)\sin(\alpha+\beta)}}\right]^2}")
+    st.markdown("**유효 연직응력 / 토압 / 합력**")
+    st.latex(r"\sigma_v' = \gamma z + q \quad (\text{수위 아래에서는 } \gamma' = \gamma-\gamma_w)")
+    st.latex(r"\sigma_h = K\sigma_v' \; (\text{active}), \qquad P = \int_0^H \sigma_h(z)\,dz")
+    st.latex(r"\bar{y} = \frac{\int_0^H \sigma_h(z)(H-z)\,dz}{\int_0^H \sigma_h(z)\,dz}")
+    st.caption("※ 본 버전은 주동/수동토압 중심입니다. 벽체 수평변위가 거의 허용되지 않으면 정지토압(K₀) 검토가 필요합니다.")
+
 
 # ============================
 # 결과 - 토압 크기/작용점
@@ -356,10 +370,12 @@ ax3.fill(wall_x, wall_y, color="#808080", alpha=0.7, label="Wall")
 
 # 뒤채움 흙
 i_rad = math.radians(i)
-backfill_x = [0.4, 0.4 + H*1.5, 0.4 + H*1.5]
-top_y = H + (H*1.5) * math.tan(i_rad)
-backfill_y = [0, top_y, 0]
+x_far = 0.4 + H * 1.5
+top_y = H + (x_far - 0.4) * math.tan(i_rad)
+backfill_x = [0.4, 0.4, x_far, x_far]
+backfill_y = [0, H, top_y, 0]
 ax3.fill(backfill_x, backfill_y, color="#c2a878", alpha=0.5, label="Backfill")
+ax3.plot([0.4, x_far], [H, top_y], color="#8c6d3f", linewidth=2)
 
 # 지하수위
 if gw_depth is not None:
@@ -371,12 +387,16 @@ if gw_depth is not None:
 
 # 등분포하중
 if use_q and q > 0:
-    arrow_y = top_y + 0.3
-    for x_arrow in np.linspace(0.5, 0.4 + H*1.3, 8):
-        ax3.annotate("", xy=(x_arrow, top_y),
-                     xytext=(x_arrow, arrow_y),
+    x_start = 0.8
+    x_end = max(1.2, x_far - 0.5)
+    x_mid = (x_start + x_end) / 2
+    y_mid = H + (x_mid - 0.4) * math.tan(i_rad)
+    for x_arrow in np.linspace(x_start, x_end, 8):
+        y_surface = H + (x_arrow - 0.4) * math.tan(i_rad)
+        ax3.annotate("", xy=(x_arrow, y_surface),
+                     xytext=(x_arrow, y_surface + 0.45),
                      arrowprops=dict(arrowstyle="->", color="red"))
-    ax3.text(0.4 + H*0.5, arrow_y + 0.1,
+    ax3.text(x_mid, y_mid + 0.55,
              f"q = {q} t/m^2",
              color="red", fontsize=11, ha="center", fontweight="bold")
 
@@ -408,11 +428,12 @@ st.markdown("---")
 with st.expander("ℹ️ 사용 안내 및 가정사항"):
     st.markdown("""
 - **부호 규약**: 깊이 z 는 지표면에서 아래로(+), 작용점 y_bar 는 옹벽 바닥에서 위로(+).
+- **정지토압 / 주동토압 / 수동토압** 은 벽체의 수평변위 조건에 따라 구분됩니다. 벽체 변위가 거의 허용되지 않으면 **정지토압(K₀)** 검토가 필요합니다.
 - **점착력 c** 는 주동토압에 한해 `-2c√Ka` 로 반영하며, 인장영역(σ<0)은 0으로 처리합니다.
 - **지하수위** 적용 시 수위 아래 흙은 수중단위중량 `γ' = γ - γw` 를 사용하고, 정수압을 별도로 더합니다.
-- **수동토압**의 점착력/등분포하중 효과는 보수적으로 미반영(일반 설계 관행).
-- **쿨롱식**은 입력 조건에 따라 제곱근 내부가 음수가 되면 계산 불가 처리합니다.
-- 본 프로그램은 **개략 설계/학습용** 입니다. 실무 설계 시 KDS/KSCE 기준 및 안전율을 별도 적용하세요.
+- **수동토압**의 점착력/등분포하중 효과는 보수적으로 미반영(일반 설계 관행)하며, 전도 검토에서 수동토압은 보통 제외합니다.
+- **Rankine** 은 벽면마찰을 무시한 이론이며, **Coulomb** 은 벽면마찰과 배면조건을 고려한 쐐기 평형해석입니다.
+- 본 프로그램은 **개략 설계/학습용** 입니다. 실무 설계 시 KDS/KSCE 기준, 활동·전도·지지력·전체안정 검토를 별도로 수행하세요.
 """)
 
 st.caption("© Earth Pressure Calculator — Built with Streamlit")
