@@ -381,17 +381,6 @@ def plot_pressure_distribution(press_curves, H, theory_name="Rankine"):
     return fig
 
 
-def summarize_distribution_features(c, q, gw_depth):
-    features = ["기본적으로 깊이가 증가할수록 토압이 커져 삼각형 분포에 가깝습니다."]
-    if q > 0:
-        features.append("등분포하중 q가 있으면 전체 분포가 직사각형만큼 위로 평행 이동합니다.")
-    if c > 0:
-        features.append("점착력이 있으면 주동토압 상부가 줄어들어 인장균열 구간이 생길 수 있습니다.")
-    if gw_depth is not None:
-        features.append("지하수위 아래에서는 유효응력 감소와 정수압 추가가 함께 나타납니다.")
-    return features
-
-
 # ============================
 # UI - 사이드바 입력
 # ============================
@@ -573,53 +562,25 @@ if mohr_rows:
 
 
 # ============================
-# 옹벽 단면도 + 토압 분포도
+# 4. 옹벽 단면도
 # ============================
-st.header("🏗️ 4. 옹벽 단면도와 토압 분포도")
-st.caption("단면도는 형상을 보여주고, 분포도는 깊이에 따라 토압이 어떻게 변하는지 보여줍니다.")
+st.header("🏗️ 4. 옹벽 단면도")
 
-section_col1, section_col2 = st.columns(2)
+wall_fig = plot_wall_section(
+    H, i, alpha, q=q, use_q=use_q,
+    gw_depth=gw_depth, Ka_r=Ka_r, press_curves=press_curves
+)
+st.pyplot(wall_fig)
 
-with section_col1:
-    st.subheader("옹벽 단면도")
-    wall_fig = plot_wall_section(
-        H, i, alpha, q=q, use_q=use_q,
-        gw_depth=gw_depth, Ka_r=Ka_r, press_curves=press_curves
-    )
-    st.pyplot(wall_fig)
-    st.info("단면도는 옹벽 형상, 뒤채움, 지표면 경사, 지하수위, 등분포하중 위치를 확인하는 그림입니다.")
 
-with section_col2:
-    st.subheader("토압 분포도")
-    theory_for_plot = st.radio("분포도 이론 선택", ["Rankine", "Coulomb"], horizontal=True)
-    pressure_fig = plot_pressure_distribution(press_curves, H, theory_name=theory_for_plot)
-    st.pyplot(pressure_fig)
-    st.info("오른쪽(+)은 주동토압, 왼쪽(-)은 수동토압입니다. 점은 합력 작용점 위치를 뜻합니다.")
+# ============================
+# 5. 토압 분포도
+# ============================
+st.header("📉 5. 토압 분포도")
 
-st.markdown("### 🔎 토압 분포도 해석 포인트")
-for item in summarize_distribution_features(c, q, gw_depth):
-    st.markdown(f"- {item}")
-
-if c > 0:
-    st.warning("점착력이 있을 때는 상부 토압이 0이 되는 구간(인장균열 가능 구간)을 해석적으로 함께 검토하세요.")
-
-if gw_depth is not None:
-    st.warning("지하수위가 있으면 흙에 의한 토압과 물에 의한 정수압이 함께 작용합니다.")
-
-st.markdown("### ✅ 단면도와 분포도의 역할 차이")
-role_df = pd.DataFrame([
-    {
-        "그림": "옹벽 단면도",
-        "보여주는 것": "벽체 형상, 뒤채움, 지표면 경사, 수위, 하중 위치",
-        "주요 용도": "문제 조건 파악"
-    },
-    {
-        "그림": "토압 분포도",
-        "보여주는 것": "깊이에 따른 토압의 크기 변화, 삼각형/사다리꼴/직사각형+삼각형 형태",
-        "주요 용도": "합력과 작용점 파악"
-    },
-])
-st.dataframe(role_df, hide_index=True, use_container_width=True)
+theory_for_plot = st.radio("분포도 이론 선택", ["Rankine", "Coulomb"], horizontal=True)
+pressure_fig = plot_pressure_distribution(press_curves, H, theory_name=theory_for_plot)
+st.pyplot(pressure_fig)
 
 
 # ============================
