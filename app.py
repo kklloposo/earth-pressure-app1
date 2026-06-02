@@ -2,8 +2,8 @@
 토압 계산 프로그램 (Earth Pressure Calculator)
 - 랭킨(Rankine) 토압 이론
 - 쿨롱(Coulomb) 토압 이론
-- 옹벽 설계용 주동/수동 토압 계산 및 시각화
-- 옹벽 단면도 + 토압 분포도 표시
+- 정지토압(K0), 주동토압(Ka), 수동토압(Kp)
+- 옹벽 설계용 토압 계산 및 시각화
 """
 
 import streamlit as st
@@ -28,6 +28,15 @@ plt.rcParams["axes.unicode_minus"] = False
 # ============================
 # 계산 함수들
 # ============================
+def at_rest_coefficient_jaky(phi_deg):
+    """
+    Jaky 식 (정규압밀토 가정)
+    K0 = 1 - sin(phi)
+    """
+    phi = math.radians(phi_deg)
+    return 1.0 - math.sin(phi)
+
+
 def rankine_coefficients(phi_deg, i_deg=0.0):
     """
     랭킨 토압 계수
@@ -106,11 +115,19 @@ def coulomb_coefficients(phi_deg, delta_deg, alpha_deg=90.0, beta_deg=0.0):
     return Ka, Kp
 
 
-def calc_earth_pressure(gamma, H, K, c=0.0, q=0.0, gw_depth=None, gamma_w=1.0):
+def calc_lateral_pressure_profile(
+    gamma, H, K, state="active", c=0.0, q=0.0, gw_depth=None, gamma_w=1.0
+):
     """
-    토압 분포 및 합력 계산
+    state:
+    - "at_rest" : sigma_h = K0 * sigma_v'
+    - "active"  : sigma_h = Ka * sigma_v' - 2c√Ka
+    - "passive" : sigma_h = Kp * sigma_v' + 2c√Kp
+
+    반환:
+    depths, sigma_total, sigma_soil, sigma_water, P_total, y_bar
     """
-    n = 200
+    n = 300
     depths = np.linspace(0, H, n)
 
     sigma_soil = np.zeros_like(depths)
@@ -122,21 +139,29 @@ def calc_earth_pressure(gamma, H, K, c=0.0, q=0.0, gw_depth=None, gamma_w=1.0):
         gamma_sub = gamma
 
     for idx, z in enumerate(depths):
-        if gw_depth is None or z <= (gw_depth if gw_depth is not None else H):
-            sigma_v = gamma * z
+        # 유효 연직응력
+        if gw_depth is None or z <= gw_depth:
+            sigma_v_eff = gamma * z
         else:
-            sigma_v = gamma * gw_depth + gamma_sub * (z - gw_depth)
+            sigma_v_eff = gamma * gw_depth + gamma_sub * (z - gw_depth)
             sigma_water[idx] = gamma_w * (z - gw_depth)
 
-        sigma_soil[idx] = K * (sigma_v + q) - 2 * c * math.sqrt(K)
+        # 토압 계산
+        if state == "at_rest":
+            sigma_h = K * (sigma_v_eff + q)
+        elif state == "active":
+            sigma_h = K * (sigma_v_eff + q) - 2 * c * math.sqrt(K)
+            sigma_h = max(0.0, sigma_h)
+        elif state == "passive":
+            sigma_h = K * (sigma_v_eff + q) + 2 * c * math.sqrt(K)
+            sigma_h = max(0.0, sigma_h)
+        else:
+            sigma_h = K * (sigma_v_eff + q)
 
-        # 인장영역은 0으로 처리
-        if sigma_soil[idx] < 0:
-            sigma_soil[idx] = 0.0
+        sigma_soil[idx] = sigma_h
 
     sigma_total = sigma_soil + sigma_water
 
-    # NumPy 2.x 호환
     _trapz = getattr(np, "trapezoid", None) or np.trapz
     P_total = _trapz(sigma_total, depths)
 
@@ -166,8 +191,10 @@ def calc_mohr_stresses(depth, gamma, K, state="active", c=0.0, q=0.0, gw_depth=N
     if state == "active":
         sigma_h = K * sigma_v - 2 * c * math.sqrt(K)
         sigma_h = max(0.0, sigma_h)
-    else:
+    elif state == "passive":
         sigma_h = K * sigma_v + 2 * c * math.sqrt(K)
+    else:
+        sigma_h = K * sigma_v
 
     sigma_1 = max(sigma_v, sigma_h)
     sigma_3 = min(sigma_v, sigma_h)
@@ -231,7 +258,7 @@ def plot_mohr_circle(theory_name, Ka, Kp, depth, gamma, phi, c=0.0, q=0.0, gw_de
     return fig
 
 
-def plot_wall_section(H, i, alpha, q=0.0, use_q=False, gw_depth=None, Ka_r=None, press_curves=None):
+def plot_wall_section(H, i, alpha, q=0.0, use_q=False, gw_depth=None, P_show=None, ybar_show=None):
     fig, ax = plt.subplots(figsize=(8, 6))
 
     # 옹벽
@@ -280,22 +307,13 @@ def plot_wall_section(H, i, alpha, q=0.0, use_q=False, gw_depth=None, Ka_r=None,
             fontweight="bold",
         )
 
-    # 주동토압 화살표 표시
-    if Ka_r is not None and press_curves and "Rankine-Active(Pa)" in press_curves:
-        _, _, _, _, P_show, ybar_show = press_curves["Rankine-Active(Pa)"]
+    # 대표 토압 화살표 (정지/주동/수동 중 기본 안내용으로 주동 표시)
+    if P_show is not None and ybar_show is not None:
         ax.annotate(
             "",
             xy=(0.4, ybar_show),
             xytext=(1.6, ybar_show),
             arrowprops=dict(arrowstyle="->", color="darkred", lw=2.5),
-        )
-        ax.text(
-            1.7,
-            ybar_show,
-            f"Pa = {P_show:.2f} t/m\n(y_bar = {ybar_show:.2f} m)",
-            color="darkred",
-            fontsize=10,
-            va="center",
         )
 
     ax.text(0.2, H + 0.2, f"alpha = {alpha:.1f}°", ha="center", fontsize=10)
@@ -312,69 +330,90 @@ def plot_wall_section(H, i, alpha, q=0.0, use_q=False, gw_depth=None, Ka_r=None,
     return fig
 
 
-def plot_pressure_distribution(press_curves, H, theory_name="Rankine"):
-    fig, ax = plt.subplots(figsize=(8, 6))
+def plot_single_distribution(profile, H, title="Distribution", side="right",
+                             fill_color="#f4a261", line_color="#e76f51",
+                             soil_color="#8d5524", water_color="#1d4ed8"):
+    """
+    그래프 내부 글자 겹침을 막기 위해:
+    - 그래프 내부 텍스트는 넣지 않음
+    - 합력점은 점(marker)만 표시
+    - 수치 정보는 그래프 아래 Streamlit 텍스트로 따로 표시
+    """
+    depths, sigma_total, sigma_soil, sigma_water, P, ybar = profile
 
-    active_key = f"{theory_name}-Active(Pa)"
-    passive_key = f"{theory_name}-Passive(Pp)"
-    max_sigma = 1.0
+    fig, ax = plt.subplots(figsize=(7.5, 6))
 
-    # 주동토압
-    if active_key in press_curves:
-        depths, sigma_total, sigma_soil, sigma_water, P, ybar = press_curves[active_key]
+    if side == "left":
+        x_total = -sigma_total
+        x_soil = -sigma_soil
+        x_water = -sigma_water
+    else:
+        x_total = sigma_total
+        x_soil = sigma_soil
+        x_water = sigma_water
 
-        ax.fill_betweenx(depths, 0, sigma_total, color="#f4a261", alpha=0.45, label="Active total")
-        ax.plot(sigma_total, depths, color="#e76f51", linewidth=2.5)
+    ax.fill_betweenx(depths, 0, x_total, color=fill_color, alpha=0.45, label="Total")
+    ax.plot(x_total, depths, color=line_color, linewidth=2.5)
 
-        if np.max(sigma_water) > 0:
-            ax.plot(sigma_soil, depths, color="#8d5524", linestyle="--", linewidth=1.5, label="Active soil")
-            ax.plot(sigma_water, depths, color="#1d4ed8", linestyle=":", linewidth=2.0, label="Water")
+    if np.max(sigma_water) > 0:
+        ax.plot(x_soil, depths, color=soil_color, linestyle="--", linewidth=1.5, label="Soil")
+        ax.plot(x_water, depths, color=water_color, linestyle=":", linewidth=2.0, label="Water")
 
-        depth_resultant = H - ybar
-        sigma_resultant = np.interp(depth_resultant, depths, sigma_total)
-        ax.plot([sigma_resultant], [depth_resultant], "o", color="#b22222", markersize=7)
-        ax.text(
-            sigma_resultant + 0.1,
-            depth_resultant,
-            f"Pa @ ȳ={ybar:.2f} m",
-            color="#b22222",
-            fontsize=9,
-            va="center",
-        )
+    # 합력 작용점: 글자 없이 점만 표시
+    depth_resultant = H - ybar
+    sigma_resultant = np.interp(depth_resultant, depths, sigma_total)
+    sigma_resultant_plot = -sigma_resultant if side == "left" else sigma_resultant
+    ax.plot([sigma_resultant_plot], [depth_resultant], "o", color="black", markersize=6)
 
-        max_sigma = max(max_sigma, float(np.max(sigma_total)))
+    max_sigma = max(1.0, float(np.max(sigma_total)))
+    if side == "left":
+        ax.set_xlim(-max_sigma * 1.2, 0.15 * max_sigma)
+    else:
+        ax.set_xlim(-0.15 * max_sigma, max_sigma * 1.2)
 
-    # 수동토압
-    if passive_key in press_curves:
-        depths, sigma_total, sigma_soil, sigma_water, P, ybar = press_curves[passive_key]
+    ax.set_ylim(H, 0)
+    ax.set_xlabel("Pressure sigma_h (t/m²)")
+    ax.set_ylabel("Depth z (m)")
+    ax.set_title(title)
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc="lower right")
 
-        ax.fill_betweenx(depths, 0, -sigma_total, color="#74c69d", alpha=0.35, label="Passive total")
-        ax.plot(-sigma_total, depths, color="#2d6a4f", linewidth=2.5)
+    return fig
 
-        if np.max(sigma_water) > 0:
-            ax.plot(-sigma_soil, depths, color="#1b4332", linestyle="--", linewidth=1.5, label="Passive soil")
 
-        depth_resultant = H - ybar
-        sigma_resultant = np.interp(depth_resultant, depths, sigma_total)
-        ax.plot([-sigma_resultant], [depth_resultant], "o", color="#1b5e20", markersize=7)
-        ax.text(
-            -sigma_resultant - 0.1,
-            depth_resultant,
-            f"Pp @ ȳ={ybar:.2f} m",
-            color="#1b5e20",
-            fontsize=9,
-            va="center",
-            ha="right",
-        )
+def plot_compare_distribution(profile_k0, profile_ka, profile_kp, H, compare_title="Comparison"):
+    """
+    비교 그래프에서는 텍스트 겹침 방지를 위해
+    - 곡선/범례만 표시
+    - 그래프 내부 주석 텍스트는 넣지 않음
+    """
+    fig, ax = plt.subplots(figsize=(8.5, 6))
 
-        max_sigma = max(max_sigma, float(np.max(sigma_total)))
+    d0, s0, _, _, _, _ = profile_k0
+    da, sa, _, _, _, _ = profile_ka
+    dp, sp, _, _, _, _ = profile_kp
+
+    ax.plot(s0, d0, color="#6a4c93", linewidth=2.5, label="K0")
+    ax.plot(sa, da, color="#e76f51", linewidth=2.5, label="Ka")
+    ax.plot(-sp, dp, color="#2d6a4f", linewidth=2.5, label="Kp")
+
+    ax.fill_betweenx(d0, 0, s0, color="#6a4c93", alpha=0.15)
+    ax.fill_betweenx(da, 0, sa, color="#e76f51", alpha=0.15)
+    ax.fill_betweenx(dp, 0, -sp, color="#2d6a4f", alpha=0.12)
+
+    max_sigma = max(
+        1.0,
+        float(np.max(s0)),
+        float(np.max(sa)),
+        float(np.max(sp))
+    )
 
     ax.axvline(0, color="black", linewidth=1.2)
-    ax.set_ylim(H, 0)
     ax.set_xlim(-max_sigma * 1.2, max_sigma * 1.2)
-    ax.set_xlabel("Pressure σh (t/m²)")
+    ax.set_ylim(H, 0)
+    ax.set_xlabel("Pressure sigma_h (t/m²)")
     ax.set_ylabel("Depth z (m)")
-    ax.set_title(f"Earth Pressure Distribution - {theory_name}")
+    ax.set_title(compare_title)
     ax.grid(True, alpha=0.25)
     ax.legend(loc="lower right")
 
@@ -416,19 +455,51 @@ with st.sidebar:
 # ============================
 # 계산 수행
 # ============================
+K0 = at_rest_coefficient_jaky(phi)
 Ka_r, Kp_r = rankine_coefficients(phi, i)
 Ka_c, Kp_c = coulomb_coefficients(phi, delta, alpha, i)
 
 warnings = []
+
 if Ka_r is None or Kp_r is None:
-    warnings.append("⚠️ 랭킨식: 경사각 i 가 내부마찰각 φ 보다 크거나 같아 계산 불가합니다.")
+    warnings.append("⚠️ Rankine: 경사각 i 가 내부마찰각 φ 보다 크거나 같아 계산 불가합니다.")
 if Ka_c is None:
-    warnings.append("⚠️ 쿨롱식 주동: 입력 조건으로 계산이 불가합니다 (제곱근 내부 음수).")
+    warnings.append("⚠️ Coulomb 주동: 입력 조건으로 계산이 불가합니다.")
 if Kp_c is None:
-    warnings.append("⚠️ 쿨롱식 수동: 입력 조건으로 계산이 불가합니다.")
+    warnings.append("⚠️ Coulomb 수동: 입력 조건으로 계산이 불가합니다.")
 
 for w in warnings:
     st.warning(w)
+
+# 프로파일 계산
+profile_k0 = calc_lateral_pressure_profile(
+    gamma, H, K0, state="at_rest", c=0.0, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+)
+
+profile_rankine_active = None
+profile_rankine_passive = None
+profile_coulomb_active = None
+profile_coulomb_passive = None
+
+if Ka_r is not None:
+    profile_rankine_active = calc_lateral_pressure_profile(
+        gamma, H, Ka_r, state="active", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+    )
+
+if Kp_r is not None:
+    profile_rankine_passive = calc_lateral_pressure_profile(
+        gamma, H, Kp_r, state="passive", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+    )
+
+if Ka_c is not None:
+    profile_coulomb_active = calc_lateral_pressure_profile(
+        gamma, H, Ka_c, state="active", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+    )
+
+if Kp_c is not None:
+    profile_coulomb_passive = calc_lateral_pressure_profile(
+        gamma, H, Kp_c, state="passive", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+    )
 
 
 # ============================
@@ -437,27 +508,37 @@ for w in warnings:
 st.header("📊 1. 토압 계수 비교")
 
 data = {
-    "구분": ["주동토압계수 Ka", "수동토압계수 Kp"],
-    "Rankine": [f"{Ka_r:.4f}" if Ka_r is not None else "—",
+    "구분": ["정지토압계수 K0", "주동토압계수 Ka", "수동토압계수 Kp"],
+    "Jaky / At-rest": [f"{K0:.4f}", "—", "—"],
+    "Rankine": ["—",
+                f"{Ka_r:.4f}" if Ka_r is not None else "—",
                 f"{Kp_r:.4f}" if Kp_r is not None else "—"],
-    "Coulomb": [f"{Ka_c:.4f}" if Ka_c is not None else "—",
+    "Coulomb": ["—",
+                f"{Ka_c:.4f}" if Ka_c is not None else "—",
                 f"{Kp_c:.4f}" if Kp_c is not None else "—"],
 }
 st.table(pd.DataFrame(data))
 
 with st.expander("📐 계산식 보기"):
+    st.markdown("**At-rest (Jaky)**")
+    st.latex(r"K_0 = 1 - \sin\phi")
+
     st.markdown("**Rankine (수평 지표면)**")
     st.latex(r"K_a = \tan^2\left(45^\circ - \frac{\phi}{2}\right), \quad K_p = \tan^2\left(45^\circ + \frac{\phi}{2}\right)")
+
     st.markdown("**Rankine (경사 지표면)**")
     st.latex(r"K_a = \cos i \cdot \frac{\cos i - \sqrt{\cos^2 i - \cos^2 \phi}}{\cos i + \sqrt{\cos^2 i - \cos^2 \phi}}")
+
     st.markdown("**Coulomb**")
     st.latex(r"K_a = \frac{\sin^2(\alpha+\phi)}{\sin^2\alpha\,\sin(\alpha-\delta)\left[1+\sqrt{\frac{\sin(\phi+\delta)\sin(\phi-\beta)}{\sin(\alpha-\delta)\sin(\alpha+\beta)}}\right]^2}")
     st.latex(r"K_p = \frac{\sin^2(\alpha-\phi)}{\sin^2\alpha\,\sin(\alpha+\delta)\left[1-\sqrt{\frac{\sin(\phi+\delta)\sin(\phi+\beta)}{\sin(\alpha+\delta)\sin(\alpha+\beta)}}\right]^2}")
+
     st.markdown("**유효 연직응력 / 토압 / 합력**")
     st.latex(r"\sigma_v' = \gamma z + q \quad (\text{수위 아래에서는 } \gamma' = \gamma-\gamma_w)")
-    st.latex(r"\sigma_h = K\sigma_v' \; (\text{active/passive}), \qquad P = \int_0^H \sigma_h(z)\,dz")
-    st.latex(r"\bar{y} = \frac{\int_0^H \sigma_h(z)(H-z)\,dz}{\int_0^H \sigma_h(z)\,dz}")
-    st.caption("※ 본 버전은 주동/수동토압 중심입니다. 벽체 수평변위가 거의 허용되지 않으면 정지토압(K₀) 검토가 필요합니다.")
+    st.latex(r"\sigma_h = K_0 \sigma_v' \; (\text{at-rest})")
+    st.latex(r"\sigma_h = K_a \sigma_v' - 2c\sqrt{K_a} \; (\text{active})")
+    st.latex(r"\sigma_h = K_p \sigma_v' + 2c\sqrt{K_p} \; (\text{passive})")
+    st.latex(r"P = \int_0^H \sigma_h(z)\,dz, \qquad \bar{y} = \frac{\int_0^H \sigma_h(z)(H-z)\,dz}{\int_0^H \sigma_h(z)\,dz}")
 
 
 # ============================
@@ -466,38 +547,58 @@ with st.expander("📐 계산식 보기"):
 st.header("📐 2. 토압 크기 및 작용점")
 
 results = []
-press_curves = {}
 
-for theory, Ka, Kp in [("Rankine", Ka_r, Kp_r), ("Coulomb", Ka_c, Kp_c)]:
-    for kind, K in [("Active(Pa)", Ka), ("Passive(Pp)", Kp)]:
-        if K is None:
-            results.append({
-                "Theory": theory,
-                "Type": kind,
-                "K": "—",
-                "P (t/m)": "—",
-                "y_bar (m, from base)": "—"
-            })
-            continue
+# K0
+_, _, _, _, P0, y0 = profile_k0
+results.append({
+    "Theory": "At-rest",
+    "Type": "K0",
+    "K": f"{K0:.4f}",
+    "P (t/m)": f"{P0:.3f}",
+    "y_bar (m, from base)": f"{y0:.3f}",
+})
 
-        c_use = c if "Active" in kind else 0.0
-        q_use = q if "Active" in kind else 0.0
+# Rankine
+if profile_rankine_active is not None:
+    _, _, _, _, P, ybar = profile_rankine_active
+    results.append({
+        "Theory": "Rankine",
+        "Type": "Active (Ka)",
+        "K": f"{Ka_r:.4f}",
+        "P (t/m)": f"{P:.3f}",
+        "y_bar (m, from base)": f"{ybar:.3f}",
+    })
 
-        depths, sigma_total, sigma_soil, sigma_water, P, ybar = calc_earth_pressure(
-            gamma, H, K, c=c_use, q=q_use, gw_depth=gw_depth, gamma_w=gamma_w
-        )
+if profile_rankine_passive is not None:
+    _, _, _, _, P, ybar = profile_rankine_passive
+    results.append({
+        "Theory": "Rankine",
+        "Type": "Passive (Kp)",
+        "K": f"{Kp_r:.4f}",
+        "P (t/m)": f"{P:.3f}",
+        "y_bar (m, from base)": f"{ybar:.3f}",
+    })
 
-        results.append({
-            "Theory": theory,
-            "Type": kind,
-            "K": f"{K:.4f}",
-            "P (t/m)": f"{P:.3f}",
-            "y_bar (m, from base)": f"{ybar:.3f}",
-        })
+# Coulomb
+if profile_coulomb_active is not None:
+    _, _, _, _, P, ybar = profile_coulomb_active
+    results.append({
+        "Theory": "Coulomb",
+        "Type": "Active (Ka)",
+        "K": f"{Ka_c:.4f}",
+        "P (t/m)": f"{P:.3f}",
+        "y_bar (m, from base)": f"{ybar:.3f}",
+    })
 
-        press_curves[f"{theory}-{kind}"] = (
-            depths, sigma_total, sigma_soil, sigma_water, P, ybar
-        )
+if profile_coulomb_passive is not None:
+    _, _, _, _, P, ybar = profile_coulomb_passive
+    results.append({
+        "Theory": "Coulomb",
+        "Type": "Passive (Kp)",
+        "K": f"{Kp_c:.4f}",
+        "P (t/m)": f"{P:.3f}",
+        "y_bar (m, from base)": f"{ybar:.3f}",
+    })
 
 st.dataframe(pd.DataFrame(results), hide_index=True, use_container_width=True)
 
@@ -566,9 +667,14 @@ if mohr_rows:
 # ============================
 st.header("🏗️ 4. 옹벽 단면도")
 
+wall_P = None
+wall_y = None
+if profile_rankine_active is not None:
+    _, _, _, _, wall_P, wall_y = profile_rankine_active
+
 wall_fig = plot_wall_section(
     H, i, alpha, q=q, use_q=use_q,
-    gw_depth=gw_depth, Ka_r=Ka_r, press_curves=press_curves
+    gw_depth=gw_depth, P_show=wall_P, ybar_show=wall_y
 )
 st.pyplot(wall_fig)
 
@@ -578,9 +684,138 @@ st.pyplot(wall_fig)
 # ============================
 st.header("📉 5. 토압 분포도")
 
-theory_for_plot = st.radio("분포도 이론 선택", ["Rankine", "Coulomb"], horizontal=True)
-pressure_fig = plot_pressure_distribution(press_curves, H, theory_name=theory_for_plot)
-st.pyplot(pressure_fig)
+tab_k0, tab_rankine, tab_coulomb, tab_compare = st.tabs([
+    "K0",
+    "Rankine",
+    "Coulomb",
+    "Comparison"
+])
+
+with tab_k0:
+    st.subheader("정지토압 K0")
+    fig_k0 = plot_single_distribution(
+        profile_k0,
+        H,
+        title="At-rest Earth Pressure (K0)",
+        side="right",
+        fill_color="#b8a1d9",
+        line_color="#6a4c93",
+        soil_color="#6a4c93",
+        water_color="#1d4ed8",
+    )
+    st.pyplot(fig_k0)
+
+    _, _, _, _, P0, y0 = profile_k0
+    st.caption(f"K0 = {K0:.4f} | P0 = {P0:.3f} t/m | y_bar = {y0:.3f} m from base")
+
+with tab_rankine:
+    st.subheader("Rankine 분포도")
+    col_ra, col_rp = st.columns(2)
+
+    with col_ra:
+        if profile_rankine_active is not None:
+            fig_ra = plot_single_distribution(
+                profile_rankine_active,
+                H,
+                title="Rankine Active (Ka)",
+                side="right",
+                fill_color="#f4a261",
+                line_color="#e76f51",
+                soil_color="#8d5524",
+                water_color="#1d4ed8",
+            )
+            st.pyplot(fig_ra)
+            _, _, _, _, P, ybar = profile_rankine_active
+            st.caption(f"Ka = {Ka_r:.4f} | Pa = {P:.3f} t/m | y_bar = {ybar:.3f} m from base")
+        else:
+            st.warning("Rankine 주동토압을 계산할 수 없습니다.")
+
+    with col_rp:
+        if profile_rankine_passive is not None:
+            fig_rp = plot_single_distribution(
+                profile_rankine_passive,
+                H,
+                title="Rankine Passive (Kp)",
+                side="left",
+                fill_color="#95d5b2",
+                line_color="#2d6a4f",
+                soil_color="#1b4332",
+                water_color="#1d4ed8",
+            )
+            st.pyplot(fig_rp)
+            _, _, _, _, P, ybar = profile_rankine_passive
+            st.caption(f"Kp = {Kp_r:.4f} | Pp = {P:.3f} t/m | y_bar = {ybar:.3f} m from base")
+        else:
+            st.warning("Rankine 수동토압을 계산할 수 없습니다.")
+
+with tab_coulomb:
+    st.subheader("Coulomb 분포도")
+    col_ca, col_cp = st.columns(2)
+
+    with col_ca:
+        if profile_coulomb_active is not None:
+            fig_ca = plot_single_distribution(
+                profile_coulomb_active,
+                H,
+                title="Coulomb Active (Ka)",
+                side="right",
+                fill_color="#ffd6a5",
+                line_color="#e85d04",
+                soil_color="#9c6644",
+                water_color="#1d4ed8",
+            )
+            st.pyplot(fig_ca)
+            _, _, _, _, P, ybar = profile_coulomb_active
+            st.caption(f"Ka = {Ka_c:.4f} | Pa = {P:.3f} t/m | y_bar = {ybar:.3f} m from base")
+        else:
+            st.warning("Coulomb 주동토압을 계산할 수 없습니다.")
+
+    with col_cp:
+        if profile_coulomb_passive is not None:
+            fig_cp = plot_single_distribution(
+                profile_coulomb_passive,
+                H,
+                title="Coulomb Passive (Kp)",
+                side="left",
+                fill_color="#cdeac0",
+                line_color="#40916c",
+                soil_color="#1b4332",
+                water_color="#1d4ed8",
+            )
+            st.pyplot(fig_cp)
+            _, _, _, _, P, ybar = profile_coulomb_passive
+            st.caption(f"Kp = {Kp_c:.4f} | Pp = {P:.3f} t/m | y_bar = {ybar:.3f} m from base")
+        else:
+            st.warning("Coulomb 수동토압을 계산할 수 없습니다.")
+
+with tab_compare:
+    st.subheader("K0 - Ka - Kp 비교")
+    compare_theory = st.radio("비교 기준", ["Rankine", "Coulomb"], horizontal=True)
+
+    if compare_theory == "Rankine":
+        if profile_rankine_active is not None and profile_rankine_passive is not None:
+            fig_cmp = plot_compare_distribution(
+                profile_k0,
+                profile_rankine_active,
+                profile_rankine_passive,
+                H,
+                compare_title="K0 / Ka / Kp Comparison (Rankine)"
+            )
+            st.pyplot(fig_cmp)
+        else:
+            st.warning("Rankine 비교 그래프를 그릴 수 없습니다.")
+    else:
+        if profile_coulomb_active is not None and profile_coulomb_passive is not None:
+            fig_cmp = plot_compare_distribution(
+                profile_k0,
+                profile_coulomb_active,
+                profile_coulomb_passive,
+                H,
+                compare_title="K0 / Ka / Kp Comparison (Coulomb)"
+            )
+            st.pyplot(fig_cmp)
+        else:
+            st.warning("Coulomb 비교 그래프를 그릴 수 없습니다.")
 
 
 # ============================
@@ -589,13 +824,12 @@ st.pyplot(pressure_fig)
 st.markdown("---")
 with st.expander("ℹ️ 사용 안내 및 가정사항"):
     st.markdown("""
+- **정지토압 K0** 는 Jaky 식 `K0 = 1 - sin(phi)` 를 사용합니다. (정규압밀토 가정)
 - **부호 규약**: 깊이 z 는 지표면에서 아래로(+), 작용점 y_bar 는 옹벽 바닥에서 위로(+).
-- **정지토압 / 주동토압 / 수동토압** 은 벽체의 수평변위 조건에 따라 구분됩니다. 벽체 변위가 거의 허용되지 않으면 **정지토압(K₀)** 검토가 필요합니다.
-- **점착력 c** 는 주동토압에 한해 `-2c√Ka` 로 반영하며, 인장영역(σ<0)은 0으로 처리합니다.
-- **지하수위** 적용 시 수위 아래 흙은 수중단위중량 `γ' = γ - γw` 를 사용하고, 정수압을 별도로 더합니다.
-- **수동토압**의 점착력/등분포하중 효과는 보수적으로 미반영(일반 설계 관행)하며, 전도 검토에서 수동토압은 보통 제외합니다.
+- **점착력 c** 는 주동/수동토압 식에 반영하고, 주동토압에서 인장영역(σ<0)은 0으로 처리합니다.
+- **지하수위** 적용 시 수위 아래 흙은 수중단위중량 `gamma' = gamma - gamma_w` 를 사용하고, 정수압을 별도로 더합니다.
 - **Rankine** 은 벽면마찰을 무시한 이론이며, **Coulomb** 은 벽면마찰과 배면조건을 고려한 쐐기 평형해석입니다.
-- 본 프로그램은 **개략 설계/학습용** 입니다. 실무 설계 시 KDS/KSCE 기준, 활동·전도·지지력·전체안정 검토를 별도로 수행하세요.
+- 본 프로그램은 **학습용 / 개략 검토용** 입니다. 실무 설계 시 KDS/KSCE 기준, 활동·전도·지지력·전체안정 검토를 별도로 수행하세요.
 """)
 
 st.caption("© Earth Pressure Calculator — Built with Streamlit")
