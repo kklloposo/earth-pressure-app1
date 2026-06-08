@@ -116,7 +116,8 @@ def coulomb_coefficients(phi_deg, delta_deg, alpha_deg=90.0, beta_deg=0.0):
 
 
 def calc_lateral_pressure_profile(
-    gamma, H, K, state="active", c=0.0, q=0.0, gw_depth=None, gamma_w=1.0
+    gamma, H, K, state="active", c=0.0, q=0.0,
+    gw_depth=None, gamma_w=1.0, gamma_sat=None
 ):
     """
     state:
@@ -124,8 +125,9 @@ def calc_lateral_pressure_profile(
     - "active"  : sigma_h = Ka * sigma_v' - 2c√Ka
     - "passive" : sigma_h = Kp * sigma_v' + 2c√Kp
 
-    반환:
-    depths, sigma_total, sigma_soil, sigma_water, P_total, y_bar
+    gamma     : 지하수면 위 단위중량
+    gamma_sat : 지하수면 아래 포화단위중량
+    gw_depth  : 지표면으로부터 지하수위 깊이
     """
     n = 300
     depths = np.linspace(0, H, n)
@@ -133,28 +135,31 @@ def calc_lateral_pressure_profile(
     sigma_soil = np.zeros_like(depths)
     sigma_water = np.zeros_like(depths)
 
-    if gw_depth is not None and gw_depth < H:
-        gamma_sub = gamma - gamma_w
-    else:
-        gamma_sub = gamma
-
     for idx, z in enumerate(depths):
-        # 유효 연직응력
+        # 유효 연직응력 계산
         if gw_depth is None or z <= gw_depth:
             sigma_v_eff = gamma * z
         else:
+            if gamma_sat is None:
+                gamma_sub = gamma - gamma_w
+            else:
+                gamma_sub = gamma_sat - gamma_w
+
             sigma_v_eff = gamma * gw_depth + gamma_sub * (z - gw_depth)
             sigma_water[idx] = gamma_w * (z - gw_depth)
 
-        # 토압 계산
+        # 횡토압 계산
         if state == "at_rest":
             sigma_h = K * (sigma_v_eff + q)
+
         elif state == "active":
             sigma_h = K * (sigma_v_eff + q) - 2 * c * math.sqrt(K)
             sigma_h = max(0.0, sigma_h)
+
         elif state == "passive":
             sigma_h = K * (sigma_v_eff + q) + 2 * c * math.sqrt(K)
             sigma_h = max(0.0, sigma_h)
+
         else:
             sigma_h = K * (sigma_v_eff + q)
 
@@ -174,18 +179,27 @@ def calc_lateral_pressure_profile(
     return depths, sigma_total, sigma_soil, sigma_water, P_total, y_bar
 
 
-def calc_effective_vertical_stress(depth, gamma, q=0.0, gw_depth=None, gamma_w=1.0):
+def calc_effective_vertical_stress(depth, gamma, q=0.0, gw_depth=None, gamma_w=1.0, gamma_sat=None):
     """특정 깊이에서의 유효 연직응력 계산"""
     if gw_depth is None or depth <= gw_depth:
         return gamma * depth + q
-    gamma_sub = gamma - gamma_w
+
+    if gamma_sat is None:
+        gamma_sub = gamma - gamma_w
+    else:
+        gamma_sub = gamma_sat - gamma_w
+
     return gamma * gw_depth + gamma_sub * (depth - gw_depth) + q
 
 
-def calc_mohr_stresses(depth, gamma, K, state="active", c=0.0, q=0.0, gw_depth=None, gamma_w=1.0):
+def calc_mohr_stresses(
+    depth, gamma, K, state="active", c=0.0, q=0.0,
+    gw_depth=None, gamma_w=1.0, gamma_sat=None
+):
     """선택 깊이에서의 간략 Mohr circle용 주응력 계산"""
     sigma_v = calc_effective_vertical_stress(
-        depth, gamma, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+        depth, gamma, q=q, gw_depth=gw_depth,
+        gamma_w=gamma_w, gamma_sat=gamma_sat
     )
 
     if state == "active":
@@ -202,13 +216,17 @@ def calc_mohr_stresses(depth, gamma, K, state="active", c=0.0, q=0.0, gw_depth=N
     return sigma_v, sigma_h, sigma_1, sigma_3
 
 
-def plot_mohr_circle(theory_name, Ka, Kp, depth, gamma, phi, c=0.0, q=0.0, gw_depth=None, gamma_w=1.0):
+def plot_mohr_circle(
+    theory_name, Ka, Kp, depth, gamma, phi, c=0.0, q=0.0,
+    gw_depth=None, gamma_w=1.0, gamma_sat=None
+):
     fig, ax = plt.subplots(figsize=(7, 6))
     max_sigma = 1.0
 
     if Ka is not None:
         _, _, s1a, s3a = calc_mohr_stresses(
-            depth, gamma, Ka, state="active", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+            depth, gamma, Ka, state="active", c=c, q=q,
+            gw_depth=gw_depth, gamma_w=gamma_w, gamma_sat=gamma_sat
         )
         center_a = (s1a + s3a) / 2
         radius_a = (s1a - s3a) / 2
@@ -221,7 +239,8 @@ def plot_mohr_circle(theory_name, Ka, Kp, depth, gamma, phi, c=0.0, q=0.0, gw_de
 
     if Kp is not None:
         _, _, s1p, s3p = calc_mohr_stresses(
-            depth, gamma, Kp, state="passive", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+            depth, gamma, Kp, state="passive", c=c, q=q,
+            gw_depth=gw_depth, gamma_w=gamma_w, gamma_sat=gamma_sat
         )
         center_p = (s1p + s3p) / 2
         radius_p = (s1p - s3p) / 2
@@ -279,7 +298,7 @@ def plot_wall_section(H, i, alpha, q=0.0, use_q=False, gw_depth=None, P_show=Non
     if gw_depth is not None:
         y_gw = H - gw_depth
         ax.axhline(y_gw, xmin=0.05, xmax=0.95, color="blue", linestyle="--", linewidth=2)
-        ax.text(0.4 + H * 0.8, y_gw + 0.12, f"GWL (-{gw_depth:.1f} m)", color="blue", fontsize=10)
+        ax.text(0.4 + H * 0.8, y_gw + 0.12, f"GWL (-{gw_depth:.1f} m from top)", color="blue", fontsize=10)
 
     # 등분포하중
     if use_q and q > 0:
@@ -307,7 +326,7 @@ def plot_wall_section(H, i, alpha, q=0.0, use_q=False, gw_depth=None, P_show=Non
             fontweight="bold",
         )
 
-    # 대표 토압 화살표 (정지/주동/수동 중 기본 안내용으로 주동 표시)
+    # 대표 토압 화살표
     if P_show is not None and ybar_show is not None:
         ax.annotate(
             "",
@@ -334,10 +353,9 @@ def plot_single_distribution(profile, H, title="Distribution", side="right",
                              fill_color="#f4a261", line_color="#e76f51",
                              soil_color="#8d5524", water_color="#1d4ed8"):
     """
-    그래프 내부 글자 겹침을 막기 위해:
-    - 그래프 내부 텍스트는 넣지 않음
-    - 합력점은 점(marker)만 표시
-    - 수치 정보는 그래프 아래 Streamlit 텍스트로 따로 표시
+    그래프 내부 글자 겹침 방지를 위해
+    그래프 내부 텍스트는 최소화하고
+    합력 작용점은 점(marker)만 표시
     """
     depths, sigma_total, sigma_soil, sigma_water, P, ybar = profile
 
@@ -359,7 +377,7 @@ def plot_single_distribution(profile, H, title="Distribution", side="right",
         ax.plot(x_soil, depths, color=soil_color, linestyle="--", linewidth=1.5, label="Soil")
         ax.plot(x_water, depths, color=water_color, linestyle=":", linewidth=2.0, label="Water")
 
-    # 합력 작용점: 글자 없이 점만 표시
+    # 합력 작용점
     depth_resultant = H - ybar
     sigma_resultant = np.interp(depth_resultant, depths, sigma_total)
     sigma_resultant_plot = -sigma_resultant if side == "left" else sigma_resultant
@@ -383,9 +401,7 @@ def plot_single_distribution(profile, H, title="Distribution", side="right",
 
 def plot_compare_distribution(profile_k0, profile_ka, profile_kp, H, compare_title="Comparison"):
     """
-    비교 그래프에서는 텍스트 겹침 방지를 위해
-    - 곡선/범례만 표시
-    - 그래프 내부 주석 텍스트는 넣지 않음
+    비교 그래프에서는 곡선/범례만 표시
     """
     fig, ax = plt.subplots(figsize=(8.5, 6))
 
@@ -430,7 +446,7 @@ with st.sidebar:
     st.header("📥 입력 데이터")
 
     st.subheader("기본 흙 물성")
-    gamma = st.number_input("흙의 단위중량 γ (t/m³)", 1.0, 3.0, 1.8, 0.05)
+    gamma = st.number_input("지하수면 위 단위중량 γ (t/m³)", 1.0, 3.0, 1.8, 0.05)
     phi = st.number_input("내부마찰각 φ (°)", 0.0, 50.0, 30.0, 0.5)
     c = st.number_input("점착력 c (t/m²)", 0.0, 20.0, 0.0, 0.1)
 
@@ -445,10 +461,30 @@ with st.sidebar:
     q = st.number_input("등분포하중 q (t/m²)", 0.0, 50.0, 1.0, 0.1) if use_q else 0.0
 
     use_gw = st.checkbox("지하수위 고려", False)
-    gw_depth = st.number_input("지하수위 깊이 (지표에서 m)", 0.0, H, H / 2, 0.1) if use_gw else None
+
+    if use_gw:
+        gw_ref = st.radio(
+            "지하수위 입력 기준",
+            ["지표면 기준", "옹벽 저면 기준"],
+            horizontal=True
+        )
+
+        gw_value = st.number_input("지하수위 위치 (m)", 0.0, H, H / 2, 0.1)
+
+        if gw_ref == "지표면 기준":
+            gw_depth = gw_value
+        else:
+            gw_depth = H - gw_value
+
+        gamma_sat = st.number_input("지하수면 아래 포화단위중량 γsat (t/m³)", 1.0, 3.0, 1.90, 0.05)
+    else:
+        gw_depth = None
+        gamma_sat = None
+
     gamma_w = 1.0
 
     st.markdown("---")
+    st.caption("※ 지하수위가 있으면 위쪽은 γ, 아래쪽은 γsat를 사용합니다.")
     st.caption("※ 단위: t/m³, t/m², t/m (단위길이당 합력)")
 
 
@@ -473,7 +509,8 @@ for w in warnings:
 
 # 프로파일 계산
 profile_k0 = calc_lateral_pressure_profile(
-    gamma, H, K0, state="at_rest", c=0.0, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+    gamma, H, K0, state="at_rest", c=0.0, q=q,
+    gw_depth=gw_depth, gamma_w=gamma_w, gamma_sat=gamma_sat
 )
 
 profile_rankine_active = None
@@ -483,22 +520,26 @@ profile_coulomb_passive = None
 
 if Ka_r is not None:
     profile_rankine_active = calc_lateral_pressure_profile(
-        gamma, H, Ka_r, state="active", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+        gamma, H, Ka_r, state="active", c=c, q=q,
+        gw_depth=gw_depth, gamma_w=gamma_w, gamma_sat=gamma_sat
     )
 
 if Kp_r is not None:
     profile_rankine_passive = calc_lateral_pressure_profile(
-        gamma, H, Kp_r, state="passive", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+        gamma, H, Kp_r, state="passive", c=c, q=q,
+        gw_depth=gw_depth, gamma_w=gamma_w, gamma_sat=gamma_sat
     )
 
 if Ka_c is not None:
     profile_coulomb_active = calc_lateral_pressure_profile(
-        gamma, H, Ka_c, state="active", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+        gamma, H, Ka_c, state="active", c=c, q=q,
+        gw_depth=gw_depth, gamma_w=gamma_w, gamma_sat=gamma_sat
     )
 
 if Kp_c is not None:
     profile_coulomb_passive = calc_lateral_pressure_profile(
-        gamma, H, Kp_c, state="passive", c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+        gamma, H, Kp_c, state="passive", c=c, q=q,
+        gw_depth=gw_depth, gamma_w=gamma_w, gamma_sat=gamma_sat
     )
 
 
@@ -534,7 +575,7 @@ with st.expander("📐 계산식 보기"):
     st.latex(r"K_p = \frac{\sin^2(\alpha-\phi)}{\sin^2\alpha\,\sin(\alpha+\delta)\left[1-\sqrt{\frac{\sin(\phi+\delta)\sin(\phi+\beta)}{\sin(\alpha+\delta)\sin(\alpha+\beta)}}\right]^2}")
 
     st.markdown("**유효 연직응력 / 토압 / 합력**")
-    st.latex(r"\sigma_v' = \gamma z + q \quad (\text{수위 아래에서는 } \gamma' = \gamma-\gamma_w)")
+    st.latex(r"\sigma_v' = \gamma z + q \quad (\text{수위 아래에서는 } \gamma' = \gamma_{sat}-\gamma_w)")
     st.latex(r"\sigma_h = K_0 \sigma_v' \; (\text{at-rest})")
     st.latex(r"\sigma_h = K_a \sigma_v' - 2c\sqrt{K_a} \; (\text{active})")
     st.latex(r"\sigma_h = K_p \sigma_v' + 2c\sqrt{K_p} \; (\text{passive})")
@@ -542,7 +583,7 @@ with st.expander("📐 계산식 보기"):
 
 
 # ============================
-# 결과 - 토압 크기/작용점
+# 결과 - 토압 크기 및 작용점
 # ============================
 st.header("📐 2. 토압 크기 및 작용점")
 
@@ -624,7 +665,7 @@ with mohr_col1:
 with mohr_col2:
     mohr_fig = plot_mohr_circle(
         "Rankine", Ka_r, Kp_r, mohr_depth, gamma, phi,
-        c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+        c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w, gamma_sat=gamma_sat
     )
     st.pyplot(mohr_fig)
 
@@ -633,7 +674,7 @@ mohr_rows = []
 if Ka_r is not None:
     sigma_v, sigma_h, s1, s3 = calc_mohr_stresses(
         mohr_depth, gamma, Ka_r, state="active",
-        c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+        c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w, gamma_sat=gamma_sat
     )
     mohr_rows.append({
         "Theory": "Rankine",
@@ -647,7 +688,7 @@ if Ka_r is not None:
 if Kp_r is not None:
     sigma_v, sigma_h, s1, s3 = calc_mohr_stresses(
         mohr_depth, gamma, Kp_r, state="passive",
-        c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w
+        c=c, q=q, gw_depth=gw_depth, gamma_w=gamma_w, gamma_sat=gamma_sat
     )
     mohr_rows.append({
         "Theory": "Rankine",
@@ -819,6 +860,19 @@ with tab_compare:
 
 
 # ============================
+# 문제 입력 도움말
+# ============================
+with st.expander("📝 문제 입력 팁"):
+    st.markdown("""
+- **연직배면(β = 90°)** 문제는 이 앱에서 보통 **α = 90°** 로 입력합니다.
+- **뒤채움 경사각**은 `i` 에 입력합니다.
+- **지하수위가 저면 기준**으로 주어지면, `지하수위 입력 기준`에서 **옹벽 저면 기준**을 선택하면 됩니다.
+- **지하수면 위/아래 단위중량이 다르면**, 위는 `γ`, 아래는 `γsat` 에 각각 입력하세요.
+- **Coulomb 이론 문제에서 벽면마찰각 δ가 주어지지 않으면**, 보통 **δ = 0°** 로 두고 계산합니다.
+""")
+
+
+# ============================
 # 푸터
 # ============================
 st.markdown("---")
@@ -827,7 +881,7 @@ with st.expander("ℹ️ 사용 안내 및 가정사항"):
 - **정지토압 K0** 는 Jaky 식 `K0 = 1 - sin(phi)` 를 사용합니다. (정규압밀토 가정)
 - **부호 규약**: 깊이 z 는 지표면에서 아래로(+), 작용점 y_bar 는 옹벽 바닥에서 위로(+).
 - **점착력 c** 는 주동/수동토압 식에 반영하고, 주동토압에서 인장영역(σ<0)은 0으로 처리합니다.
-- **지하수위** 적용 시 수위 아래 흙은 수중단위중량 `gamma' = gamma - gamma_w` 를 사용하고, 정수압을 별도로 더합니다.
+- **지하수위** 적용 시 수위 위는 `γ`, 수위 아래는 `γsat`를 사용하며, 수중단위중량은 `gamma' = gamma_sat - gamma_w` 로 계산하고 정수압을 별도로 더합니다.
 - **Rankine** 은 벽면마찰을 무시한 이론이며, **Coulomb** 은 벽면마찰과 배면조건을 고려한 쐐기 평형해석입니다.
 - 본 프로그램은 **학습용 / 개략 검토용** 입니다. 실무 설계 시 KDS/KSCE 기준, 활동·전도·지지력·전체안정 검토를 별도로 수행하세요.
 """)
